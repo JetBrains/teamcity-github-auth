@@ -1,0 +1,64 @@
+buildscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath "com.github.rodm:gradle-teamcity-plugin:0.9.1"
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'com.github.rodm.teamcity-server'
+
+group 'org.jetbrains.teamcity'
+version = "$System.env.BUILD_NUMBER"
+if (version.length() == 0) {
+    version = "SNAPSHOT"
+}
+
+ext {
+    teamcityDir = "$rootDir/servers/TeamCity-${TeamCityVersion}"
+    teamcityDataDir = "$rootDir/data/" + (
+            (TeamCityVersion ==~ /(\d+\.\d+).*/) ?
+                    ((TeamCityVersion =~ /(\d+\.\d+).*/)[0][1])
+                    : TeamCityVersion
+    )
+    teamcityJavaHome = System.properties['java.home']
+}
+
+teamcity {
+    version = TeamCityVersion
+
+    server {
+        descriptor {
+            name = project.name
+            displayName = 'TeamCity GitHub Auth'
+            version = project.version
+            vendorName = 'JetBrains, s.r.o.'
+            vendorUrl = 'http://www.jetbrains.com/'
+            description = 'Allows to authenticate using GitHub OAuth'
+            useSeparateClassloader = true
+        }
+
+        environments {
+            teamcityDev {
+                version = TeamCityVersion
+                homeDir = file(teamcityDir)
+                dataDir = file(teamcityDataDir)
+                javaHome = file(teamcityJavaHome)
+                serverOptions '-Xdebug'
+                serverOptions '-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=5500'
+
+                serverOptions '-Dteamcity.development.mode=true'
+                serverOptions '-Dteamcity.development.shadowCopyClasses=true'
+            }
+
+        }
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.14'
+}
