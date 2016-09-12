@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd"
+       default-autowire="constructor">
+
+    <bean class="org.jetbrains.teamcity.githubauth.LoginViaGitHubOAuthPageExtension"/>
+    <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuth"/>
+    <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuthLoginController"/>
+    <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuthClient"/>
+
+    <bean id="gitHubRestTemplate" class="org.springframework.web.client.RestTemplate">
+        <constructor-arg name="requestFactory">
+            <bean class="org.springframework.http.client.HttpComponentsClientHttpRequestFactory"/>
+        </constructor-arg>
+    </bean>
+</beans>
