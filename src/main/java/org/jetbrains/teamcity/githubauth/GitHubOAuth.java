@@ -4,6 +4,8 @@ import com.google.common.base.Strings;
 import jetbrains.buildServer.PluginTypes;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationResult;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationScheme;
+import jetbrains.buildServer.controllers.interceptors.auth.util.HttpAuthUtil;
+import jetbrains.buildServer.log.Loggers;
 import jetbrains.buildServer.serverSide.ProjectManager;
 import jetbrains.buildServer.serverSide.ServerSettings;
 import jetbrains.buildServer.serverSide.auth.LoginConfiguration;
@@ -13,10 +15,7 @@ import jetbrains.buildServer.serverSide.oauth.OAuthConnectionsManager;
 import jetbrains.buildServer.serverSide.oauth.OAuthTokensStorage;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubConstants;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider;
-import jetbrains.buildServer.users.PluginPropertyKey;
-import jetbrains.buildServer.users.SUser;
-import jetbrains.buildServer.users.UserModel;
-import jetbrains.buildServer.users.UserSet;
+import jetbrains.buildServer.users.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,6 +23,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.*;
+
+import static java.util.Collections.emptySet;
 
 public class GitHubOAuth implements HttpAuthenticationScheme {
     private static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
@@ -79,19 +80,24 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         GitHubOAuthClient.TokenResponse token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
                 connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
                 myServerSettings.getRootUrl());
-        GitHubUser user = gitHubOAuthClient.getUser(token.access_token);
+        GitHubUser gitHubUser = gitHubOAuthClient.getUser(token.access_token);
 
-        UserSet<SUser> users = myUserModel.findUsersByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, user.getId(), true);
+        UserSet<SUser> users = myUserModel.findUsersByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId(), true);
         Iterator<SUser> iterator = users.getUsers().iterator();
         if (iterator.hasNext()) {
             final SUser found = iterator.next();
-            oAuthTokensStorage.rememberPermanentToken(connection.getId(), found, user.getLogin(), token.access_token, token.scope);
+            oAuthTokensStorage.rememberPermanentToken(connection.getId(), found, gitHubUser.getLogin(), token.access_token, token.scope);
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, found.getUsername()), true);
         }
 
-        ServerPrincipal principal = new ServerPrincipal(null, user.getLogin(), null, true,
-                Collections.singletonMap(GITHUB_USER_ID_PROPERTY_KEY, user.getId()));
-        return HttpAuthenticationResult.authenticated(principal, true);
+        try {
+            SUser created = myUserModel.createUserAccount(null, gitHubUser.getLogin());
+            created.setUserProperty(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId());
+            return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, created.getUsername()), true);
+        } catch (DuplicateUserAccountException e) {
+            Loggers.SERVER.warn("Failed attempt to login using GitHub account: user with username '" + gitHubUser.getLogin() + "' already exist.");
+            return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
+        }
     }
 
     @NotNull
