@@ -4,15 +4,18 @@ import com.google.common.base.Strings;
 import jetbrains.buildServer.PluginTypes;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationResult;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationScheme;
+import jetbrains.buildServer.serverSide.ProjectManager;
 import jetbrains.buildServer.serverSide.ServerSettings;
-import jetbrains.buildServer.serverSide.auth.AuthModule;
 import jetbrains.buildServer.serverSide.auth.LoginConfiguration;
 import jetbrains.buildServer.serverSide.auth.ServerPrincipal;
+import jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor;
+import jetbrains.buildServer.serverSide.oauth.OAuthConnectionsManager;
+import jetbrains.buildServer.serverSide.oauth.github.GitHubConstants;
+import jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider;
 import jetbrains.buildServer.users.PluginPropertyKey;
 import jetbrains.buildServer.users.SUser;
 import jetbrains.buildServer.users.UserModel;
 import jetbrains.buildServer.users.UserSet;
-import jetbrains.buildServer.web.openapi.PluginDescriptor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,9 +26,8 @@ import java.util.*;
 
 public class GitHubOAuth implements HttpAuthenticationScheme {
     private static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
+    private static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
 
-    @NotNull
-    private final PluginDescriptor pluginDescriptor;
     @NotNull
     private final GitHubOAuthClient gitHubOAuthClient;
     @NotNull
@@ -34,24 +36,29 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     private final LoginConfiguration loginConfiguration;
     @NotNull
     private final ServerSettings myServerSettings;
+    @NotNull
+    private final OAuthConnectionsManager oAuthConnectionsManager;
+    @NotNull
+    private final ProjectManager projectManager;
 
-    public GitHubOAuth(@NotNull PluginDescriptor pluginDescriptor,
-                       @NotNull GitHubOAuthClient gitHubOAuthClient,
+    public GitHubOAuth(@NotNull GitHubOAuthClient gitHubOAuthClient,
                        @NotNull UserModel myUserModel,
                        @NotNull LoginConfiguration loginConfiguration,
-                       @NotNull ServerSettings myServerSettings) {
-        this.pluginDescriptor = pluginDescriptor;
+                       @NotNull ServerSettings myServerSettings,
+                       @NotNull OAuthConnectionsManager oAuthConnectionsManager, @NotNull ProjectManager projectManager) {
         this.gitHubOAuthClient = gitHubOAuthClient;
         this.myUserModel = myUserModel;
         this.loginConfiguration = loginConfiguration;
         this.myServerSettings = myServerSettings;
+        this.oAuthConnectionsManager = oAuthConnectionsManager;
+        this.projectManager = projectManager;
         loginConfiguration.registerAuthModuleType(this);
     }
 
     @NotNull
     public String getUserRedirect() {
-        Map<String, String> appSettings = getAuthModule().getProperties();
-        return gitHubOAuthClient.getUserRedirect(appSettings.get("clientId"), appSettings.get("scope"), myServerSettings.getRootUrl());
+        OAuthConnectionDescriptor connection = getSuitableConnection();
+        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, myServerSettings.getRootUrl());
     }
 
     @NotNull
@@ -62,8 +69,9 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         if (Strings.isNullOrEmpty(code))
             return HttpAuthenticationResult.notApplicable();
 
-        Map<String, String> appSettings = getAuthModule().getProperties();
-        String token = gitHubOAuthClient.exchangeCodeToToken(code, appSettings.get("clientId"), appSettings.get("clientSecret"),
+        OAuthConnectionDescriptor connection = tryFindSuitableConnection();
+        String token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
+                connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
                 myServerSettings.getRootUrl());
         GitHubUser user = gitHubOAuthClient.getUser(token);
 
@@ -94,7 +102,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     @NotNull
     @Override
     public String getDescription() {
-        return "Allows authentication via GitHub account";
+        return "Allows authentication using GitHub account";
     }
 
     @Override
@@ -111,7 +119,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     @Nullable
     @Override
     public String getEditPropertiesJspFilePath() {
-        return pluginDescriptor.getPluginResourcesPath("editGitHubAuthScheme.jsp");
+        return GitHubAuthSettingsController.PATH;
     }
 
     @NotNull
@@ -123,15 +131,31 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     @Nullable
     @Override
     public Collection<String> validate(@NotNull Map<String, String> properties) {
+        if (tryFindSuitableConnection() == null) {
+            return Collections.singleton("GitHub Authentication is inactive as GitHub.com Connection in the Root Project is not specified");
+        }
         return null;
     }
 
+    @Nullable
+    public OAuthConnectionDescriptor tryFindSuitableConnection() {
+        List<OAuthConnectionDescriptor> foundConnections = oAuthConnectionsManager.getAvailableConnectionsOfType(projectManager.getRootProject(), GitHubOAuthProvider.TYPE);
+        return foundConnections.isEmpty() ? null : foundConnections.get(0);
+    }
+
     @NotNull
-    private AuthModule<GitHubOAuth> getAuthModule() {
-        List<AuthModule<GitHubOAuth>> authModules = loginConfiguration.getConfiguredAuthModules(GitHubOAuth.class);
-        if (authModules.size() != 1) {
+    public OAuthConnectionDescriptor getSuitableConnection() {
+        if (!isAuthModuleConfigured()) {
             throw new GitHubLoginException("Attempt to login via GitHub OAuth while corresponding auth module is not configured");
         }
-        return authModules.get(0);
+        OAuthConnectionDescriptor found = tryFindSuitableConnection();
+        if (found == null) {
+            throw new GitHubLoginException("Attempt to login via GitHub OAuth while GitHub.com Connection in the Root Project is not configured");
+        }
+        return found;
+    }
+
+    public boolean isAuthModuleConfigured() {
+        return loginConfiguration.getConfiguredAuthModules(GitHubOAuth.class).size() == 1;
     }
 }

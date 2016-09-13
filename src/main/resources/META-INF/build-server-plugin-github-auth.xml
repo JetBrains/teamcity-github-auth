@@ -8,6 +8,7 @@
     <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuth"/>
     <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuthLoginController"/>
     <bean class="org.jetbrains.teamcity.githubauth.GitHubOAuthClient"/>
+    <bean class="org.jetbrains.teamcity.githubauth.GitHubAuthSettingsController"/>
 
     <bean id="gitHubRestTemplate" class="org.springframework.web.client.RestTemplate">
         <constructor-arg name="requestFactory">

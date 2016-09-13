@@ -1,17 +1,21 @@
+<%@ page import="jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider" %>
 <%@ include file="/include-internal.jsp" %>
 <%@ taglib prefix="prop" tagdir="/WEB-INF/tags/props" %>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<%@ taglib prefix="fn" uri="http://java.sun.com/jsp/jstl/functions" %>
+
+<%--@elvariable id="connection" type="jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor"--%>
+<c:set var="connectionType" value="<%=GitHubOAuthProvider.TYPE%>"/>
+<c:url var="oauthConnectionsUrl" value="/admin/editProject.html?projectId=_Root&tab=oauthConnections"/>
 <div>
-    <label width="100%" for="clientId">Client ID:</label><br/>
-    <prop:textProperty style="width: 100%;" name="clientId"/><br/>
-    <span class="grayNote">Client identifier.</span>
-</div>
-<div>
-    <label width="100%" for="clientSecret">Client Secret:</label><br/>
-    <prop:textProperty style="width: 100%;" name="clientSecret"/><br/>
-    <span class="grayNote">Client secret.</span>
-</div>
-<div>
-    <label width="100%" for="scope">Scope:</label><br/>
-    <prop:textProperty style="width: 100%;" name="scope"/><br/>
-    <span class="grayNote">Scope.</span>
+    <c:choose>
+        <c:when test="${connection != null}">
+            GitHub authentication module uses <a href="${oauthConnectionsUrl}">GitHub
+            Connection</a> from the Root Project
+        </c:when>
+        <c:otherwise>
+            Please add <a href="${oauthConnectionsUrl}#addDialog=${connectionType}">GitHub
+            Connection</a> to the Root Project to activate GitHub Authentication.
+        </c:otherwise>
+    </c:choose>
 </div>
