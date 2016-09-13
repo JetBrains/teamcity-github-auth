@@ -40,9 +40,10 @@ public class GitHubOAuthTest {
                 .andExpect(content().formData(expectedBody))
                 .andRespond(withSuccess("{\"access_token\":\"e72e16c7e42f292c6912e7710c838347ae178b4a\", \"scope\":\"repo,gist\", \"token_type\":\"bearer\"}", APPLICATION_JSON));
 
-        String token = gitHubClient.exchangeCodeToToken("code", "id", "secret", "redirect");
+        GitHubOAuthClient.TokenResponse token = gitHubClient.exchangeCodeToToken("code", "id", "secret", "redirect");
 
-        then(token).isEqualTo("e72e16c7e42f292c6912e7710c838347ae178b4a");
+        then(token.access_token).isEqualTo("e72e16c7e42f292c6912e7710c838347ae178b4a");
+        then(token.scope).isEqualTo("repo,gist");
     }
 
     @Test

@@ -10,6 +10,7 @@ import jetbrains.buildServer.serverSide.auth.LoginConfiguration;
 import jetbrains.buildServer.serverSide.auth.ServerPrincipal;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionsManager;
+import jetbrains.buildServer.serverSide.oauth.OAuthTokensStorage;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubConstants;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider;
 import jetbrains.buildServer.users.PluginPropertyKey;
@@ -39,18 +40,23 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     @NotNull
     private final OAuthConnectionsManager oAuthConnectionsManager;
     @NotNull
+    private final OAuthTokensStorage oAuthTokensStorage;
+    @NotNull
     private final ProjectManager projectManager;
 
     public GitHubOAuth(@NotNull GitHubOAuthClient gitHubOAuthClient,
                        @NotNull UserModel myUserModel,
                        @NotNull LoginConfiguration loginConfiguration,
                        @NotNull ServerSettings myServerSettings,
-                       @NotNull OAuthConnectionsManager oAuthConnectionsManager, @NotNull ProjectManager projectManager) {
+                       @NotNull OAuthConnectionsManager oAuthConnectionsManager,
+                       @NotNull OAuthTokensStorage oAuthTokensStorage,
+                       @NotNull ProjectManager projectManager) {
         this.gitHubOAuthClient = gitHubOAuthClient;
         this.myUserModel = myUserModel;
         this.loginConfiguration = loginConfiguration;
         this.myServerSettings = myServerSettings;
         this.oAuthConnectionsManager = oAuthConnectionsManager;
+        this.oAuthTokensStorage = oAuthTokensStorage;
         this.projectManager = projectManager;
         loginConfiguration.registerAuthModuleType(this);
     }
@@ -69,16 +75,17 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         if (Strings.isNullOrEmpty(code))
             return HttpAuthenticationResult.notApplicable();
 
-        OAuthConnectionDescriptor connection = tryFindSuitableConnection();
-        String token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
+        OAuthConnectionDescriptor connection = getSuitableConnection();
+        GitHubOAuthClient.TokenResponse token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
                 connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
                 myServerSettings.getRootUrl());
-        GitHubUser user = gitHubOAuthClient.getUser(token);
+        GitHubUser user = gitHubOAuthClient.getUser(token.access_token);
 
         UserSet<SUser> users = myUserModel.findUsersByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, user.getId(), true);
         Iterator<SUser> iterator = users.getUsers().iterator();
         if (iterator.hasNext()) {
             final SUser found = iterator.next();
+            oAuthTokensStorage.rememberPermanentToken(connection.getId(), found, user.getLogin(), token.access_token, token.scope);
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, found.getUsername()), true);
         }
 
