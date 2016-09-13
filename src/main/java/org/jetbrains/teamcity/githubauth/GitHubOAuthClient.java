@@ -21,9 +21,9 @@ public class GitHubOAuthClient {
     }
 
     @NotNull
-    public String getUserRedirect(@NotNull String clientId, @NotNull String scope, @NotNull String redirectUrl) {
-        return String.format("https://github.com/login/oauth/authorize?client_id=%s&scope=%s&redirect_uri=%s",
-                clientId, scope, redirectUrl);
+    public String getUserRedirect(@NotNull String clientId, @NotNull String scope, @NotNull String redirectUrl, @NotNull String state) {
+        return String.format("https://github.com/login/oauth/authorize?client_id=%s&scope=%s&redirect_uri=%s&state=%s",
+                clientId, scope, redirectUrl, state);
     }
 
     @NotNull

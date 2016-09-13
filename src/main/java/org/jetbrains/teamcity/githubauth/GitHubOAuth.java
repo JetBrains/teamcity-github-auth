@@ -16,11 +16,14 @@ import jetbrains.buildServer.serverSide.oauth.OAuthTokensStorage;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubConstants;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider;
 import jetbrains.buildServer.users.*;
+import jetbrains.buildServer.util.StringUtil;
+import jetbrains.buildServer.web.util.WebUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.*;
 
@@ -29,6 +32,7 @@ import static java.util.Collections.emptySet;
 public class GitHubOAuth implements HttpAuthenticationScheme {
     private static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
     private static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
+    private static final String STATE_SESSION_ATTR_NAME = "teamcity.gitHubAuth.state";
 
     @NotNull
     private final GitHubOAuthClient gitHubOAuthClient;
@@ -63,18 +67,27 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     @NotNull
-    public String getUserRedirect() {
+    public String getUserRedirect(HttpServletRequest request) {
         OAuthConnectionDescriptor connection = getSuitableConnection();
-        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, myServerSettings.getRootUrl());
+        HttpSession session = request.getSession();
+        String state = StringUtil.generateUniqueHash();
+        session.setAttribute(STATE_SESSION_ATTR_NAME, state);
+        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, myServerSettings.getRootUrl(), state);
     }
 
     @NotNull
     @Override
     public HttpAuthenticationResult processAuthenticationRequest(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Map<String, String> properties) throws IOException {
         String code = request.getParameter("code");
+        String state = request.getParameter("state");
 
         if (Strings.isNullOrEmpty(code))
             return HttpAuthenticationResult.notApplicable();
+
+        if (state == null || !state.equals(request.getSession().getAttribute(STATE_SESSION_ATTR_NAME))) {
+            Loggers.SERVER.warn("Attempt to login using GitHub with invalid state parameter. Request: " + WebUtil.getRequestDump(request));
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: state parameter is invalid", emptySet());
+        }
 
         OAuthConnectionDescriptor connection = getSuitableConnection();
         GitHubOAuthClient.TokenResponse token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
@@ -95,7 +108,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
             created.setUserProperty(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId());
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, created.getUsername()), true);
         } catch (DuplicateUserAccountException e) {
-            Loggers.SERVER.warn("Failed attempt to login using GitHub account: user with username '" + gitHubUser.getLogin() + "' already exist.");
+            Loggers.SERVER.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
             return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
         }
     }

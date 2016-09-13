@@ -27,6 +27,6 @@ public class GitHubOAuthLoginController extends BaseController {
     @Nullable
     @Override
     protected ModelAndView doHandle(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response) throws Exception {
-        return redirectTo(gitHubOAuth.getUserRedirect(), response);
+        return redirectTo(gitHubOAuth.getUserRedirect(request), response);
     }
 }
