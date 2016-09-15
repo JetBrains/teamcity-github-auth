@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Log4jLogger;
 import jetbrains.buildServer.ExtensionHolder;
 import jetbrains.buildServer.TestInternalProperties;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationResult;
+import jetbrains.buildServer.controllers.interceptors.auth.util.HttpAuthUtil;
 import jetbrains.buildServer.serverSide.SProject;
 import jetbrains.buildServer.serverSide.SProjectFeatureDescriptor;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor;
@@ -25,6 +26,7 @@ import org.springframework.web.client.RestTemplate;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +55,7 @@ public class GitHubOAuthTest {
     private static final String GITHUB_USER_LOGIN = "octocat";
     private static final String GITHUB_USER_ID = "1";
 
+
     private GitHubOAuth gitHubOAuth;
     private TeamCityCoreFacade teamCityCoreMock;
     private OAuthConnectionDescriptor rootProjectConnection;
@@ -60,12 +63,14 @@ public class GitHubOAuthTest {
     private MockHttpSession session;
     private MockHttpServletRequest request;
     private MockHttpServletResponse response;
+    private Map<String, String> connectionParams;
+    private MockRestServiceServer server;
 
     @BeforeMethod
     public void setUp() throws Exception {
         TestInternalProperties.init();
         RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        server = MockRestServiceServer.bindTo(restTemplate).build();
         GitHubOAuthClient gitHubClient = new GitHubOAuthClient(restTemplate);
 
         teamCityCoreMock = mock(TeamCityCoreFacade.class);
@@ -80,10 +85,10 @@ public class GitHubOAuthTest {
         when(tcUser.getUsername()).thenReturn(GITHUB_USER_LOGIN);
 
         rootProjectConnection = new OAuthConnectionDescriptor(mock(SProject.class), mock(SProjectFeatureDescriptor.class), mock(ExtensionHolder.class));
-        Map<String, String> connectionParams = new HashMap<>();
+        connectionParams = new HashMap<>();
         connectionParams.put(GitHubConstants.CLIENT_ID_PARAM, CLIENT_ID);
         connectionParams.put(GitHubConstants.CLIENT_SECRET_PARAM, CLIENT_SECRET);
-        when(rootProjectConnection.getParameters()).thenReturn(connectionParams);
+        when(rootProjectConnection.getParameters()).then(invocation -> connectionParams);
         when(teamCityCoreMock.getRootProjectGitHubConnection()).thenReturn(rootProjectConnection);
         when(teamCityCoreMock.getRootUrl()).thenReturn(TC_URL);
         when(teamCityCoreMock.isAuthModuleConfigured(GitHubOAuth.class)).thenReturn(true);
@@ -92,16 +97,23 @@ public class GitHubOAuthTest {
         newRequest();
 
         //Setup GitHub API responses
-        MultiValueMap<String, String> expectedTokenBody = new LinkedMultiValueMap<>();
-        expectedTokenBody.put("client_id", singletonList(CLIENT_ID));
-        expectedTokenBody.put("client_secret", singletonList(CLIENT_SECRET));
-        expectedTokenBody.put("code", singletonList(OAUTH_CODE));
-        expectedTokenBody.put("redirect_uri", singletonList(TC_URL));
+        MultiValueMap<String, String> expectedTokenBody = createTokenRequestBody(CLIENT_ID, CLIENT_SECRET, OAUTH_CODE);
 
         server.expect(requestTo("https://github.com/login/oauth/access_token")).andExpect(method(POST)).andExpect(content().formData(expectedTokenBody))
                 .andRespond(withSuccess(TOKEN_JSON, APPLICATION_JSON));
+
         server.expect(requestTo("https://api.github.com/user?access_token=" + OAUTH_TOKEN)).andExpect(method(GET))
                 .andRespond(withSuccess(USER_JSON, APPLICATION_JSON));
+    }
+
+    @NotNull
+    private MultiValueMap<String, String> createTokenRequestBody(String clientId, String clientSecret, String code) {
+        MultiValueMap<String, String> expectedTokenBody = new LinkedMultiValueMap<>();
+        expectedTokenBody.put("client_id", singletonList(clientId));
+        expectedTokenBody.put("client_secret", singletonList(clientSecret));
+        expectedTokenBody.put("code", singletonList(code));
+        expectedTokenBody.put("redirect_uri", singletonList(TC_URL + GitHubOAuthTokenController.PATH));
+        return expectedTokenBody;
     }
 
     private void newRequest() {
@@ -120,6 +132,7 @@ public class GitHubOAuthTest {
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.NOT_APPLICABLE);
     }
+
     @Test
     public void successful_login__new_user_created() throws Exception {
         emulateFirstOAuthStep();
@@ -130,7 +143,7 @@ public class GitHubOAuthTest {
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.AUTHENTICATED);
         then(result.getPrincipal().getName()).isEqualTo(GITHUB_USER_LOGIN);
-        verify(teamCityCoreMock).rememberToken(rootProjectConnection, tcUser, GITHUB_USER_LOGIN, new GitHubToken(OAUTH_TOKEN, DEFAULT_SCOPE));
+        verify(teamCityCoreMock).rememberToken(rootProjectConnection, tcUser, GITHUB_USER_LOGIN, OAUTH_TOKEN, DEFAULT_SCOPE);
     }
 
     @Test
@@ -142,8 +155,74 @@ public class GitHubOAuthTest {
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.AUTHENTICATED);
         then(result.getPrincipal().getName()).isEqualTo(GITHUB_USER_LOGIN);
-        verify(teamCityCoreMock).rememberToken(rootProjectConnection, tcUser, GITHUB_USER_LOGIN, new GitHubToken(OAUTH_TOKEN, DEFAULT_SCOPE));
+        verify(teamCityCoreMock).rememberToken(rootProjectConnection, tcUser, GITHUB_USER_LOGIN, OAUTH_TOKEN, DEFAULT_SCOPE);
         verify(teamCityCoreMock, never()).createUser(anyString(), anyMap());
+    }
+
+    @Test
+    public void should_not_accept_incorrect_state_param() throws IOException {
+        emulateFirstOAuthStep();
+
+        request.setParameter("state", "incorrect_state");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("GitHub login error: 'state' parameter is invalid");
+        then(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
+    public void should_not_accept_missing_state_param() throws IOException {
+        emulateFirstOAuthStep();
+
+        request.removeParameter("state");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("GitHub login error: 'state' parameter is empty");
+        then(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
+    public void should_not_accept_missing_code_param() throws IOException {
+        emulateFirstOAuthStep();
+
+        request.removeParameter("code");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("GitHub login error: 'code' parameter is empty");
+        then(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
+    public void should_handle_error_when_user_redirected_back() throws IOException {
+        emulateFirstOAuthStep();
+
+        request.removeParameter("code");
+        request.addParameter("error", "application_suspended");
+        request.addParameter("error_description", "Your+application+has+been+suspended.+Contact+support@github.com.");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("GitHub login error: user was redirected with 'error' param.");
+        then(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
+    public void should_handle_error_when_token_request_failed___invalid_credentials() throws IOException {
+        emulateFirstOAuthStep();
+
+        server.reset();
+        server.expect(requestTo("https://github.com/login/oauth/access_token")).andExpect(method(POST))
+                .andExpect(content().formData(createTokenRequestBody(CLIENT_ID, "incorrectSecret", OAUTH_CODE)))
+                .andRespond(withSuccess(TOKEN_ERROR_INCORRECT_SECRET_JSON, APPLICATION_JSON));
+
+        connectionParams.put(GitHubConstants.CLIENT_SECRET_PARAM, "incorrectSecret");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("Unexpected GitHub login error (see teamcity-auth.log for the details).");
     }
 
     private void emulateFirstOAuthStep() {
@@ -167,6 +246,12 @@ public class GitHubOAuthTest {
     }
 
     private static final String TOKEN_JSON = "{\"access_token\":\"" + OAUTH_TOKEN + "\", \"scope\":\"" + DEFAULT_SCOPE + "\", \"token_type\":\"bearer\"}";
+
+    private static final String TOKEN_ERROR_INCORRECT_SECRET_JSON = "{" +
+            "  \"error\": \"incorrect_client_credentials\",\n" +
+            "  \"error_description\": \"The client_id and/or client_secret passed are incorrect.\",\n" +
+            "  \"error_uri\": \"https://developer.github.com/v3/oauth/#incorrect-client-credentials\"" +
+            "}";
 
     private static final String USER_JSON = "{\n" +
             "  \"login\": \"" + GITHUB_USER_LOGIN + "\",\n" +

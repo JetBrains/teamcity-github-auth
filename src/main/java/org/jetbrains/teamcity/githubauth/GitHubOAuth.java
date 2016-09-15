@@ -60,7 +60,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         String state = StringUtil.generateUniqueHash();
         session.setAttribute(STATE_SESSION_ATTR_NAME, state);
         return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE,
-                teamCityCore.getRootUrl() + GitHubOAuthTokenController.PATH, state);
+                buildRedirectUrl(), state);
     }
 
     @NotNull
@@ -69,12 +69,17 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         HttpAuthenticationResult result = validateRequest(request, response);
         if (result != null) return result;
 
-        String code = request.getParameter("code");
         OAuthConnectionDescriptor connection = getSuitableConnection();
-        GitHubToken token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
+        GitHubTokenResponse token = gitHubOAuthClient.exchangeCodeToToken(request.getParameter("code"),
+                connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
                 connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
-                teamCityCore.getRootUrl());
-        logger.debug("GitHub token received: " + token.describe(false));
+                buildRedirectUrl());
+        logger.debug("GitHub token response: " + token.describe(false));
+
+        if (token.error != null) {
+            logger.warn("GitHub login error while obtaining token: " + token.describe(false));
+            return HttpAuthUtil.sendUnauthorized(request, response, "Unexpected GitHub login error (see teamcity-auth.log for the details).", emptySet());
+        }
 
         GitHubUser gitHubUser = gitHubOAuthClient.getUser(token.access_token);
         logger.debug("GitHub user obtained: " + gitHubUser.describe(false));
@@ -83,7 +88,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         Iterator<SUser> iterator = users.getUsers().iterator();
         if (iterator.hasNext()) {
             final SUser found = iterator.next();
-            teamCityCore.rememberToken(connection, found, gitHubUser.getLogin(), token);
+            teamCityCore.rememberToken(connection, found, gitHubUser.getLogin(), token.access_token, token.scope);
             logger.debug("Corresponding TeamCity user found for the GitHub user '" + gitHubUser.describe(false) + "': " + found.describe(true));
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, found.getUsername()), true);
         }
@@ -91,12 +96,17 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         try {
             SUser created = teamCityCore.createUser(gitHubUser.getLogin(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
             logger.debug("New TeamCity user created for the GitHub user '" + gitHubUser.describe(false) + "': " + created.describe(true));
-            teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token);
+            teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token.access_token, token.scope);
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, gitHubUser.getLogin()), true);
         } catch (DuplicateUserAccountException e) {
             logger.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
             return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
         }
+    }
+
+    @NotNull
+    private String buildRedirectUrl() {
+        return teamCityCore.getRootUrl() + GitHubOAuthTokenController.PATH;
     }
 
     @Nullable
@@ -106,8 +116,13 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
             return HttpAuthenticationResult.notApplicable();
         }
 
+        if (request.getParameter("error") != null) {
+            logger.warn("GitHub login error: user was redirected with an 'error', URL: " + request.getRequestURI() + "?" + request.getQueryString());
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: user was redirected with 'error' param.", emptySet());
+        }
+
         if (Strings.isNullOrEmpty(request.getParameter("code"))) {
-            logger.debug("No 'code' parameter found in the request, skip GitHub authentication");
+            logger.warn("GitHub login error: 'code' parameter is empty");
             return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: 'code' parameter is empty", emptySet());
         }
 

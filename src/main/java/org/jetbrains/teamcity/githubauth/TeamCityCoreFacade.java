@@ -73,7 +73,7 @@ public class TeamCityCoreFacade {
         return found.isEmpty() ? null : found.get(0);
     }
 
-    void rememberToken(OAuthConnectionDescriptor connection, SUser user, String githubLogin, GitHubToken token) {
-        oAuthTokensStorage.rememberPermanentToken(connection.getId(), user, githubLogin, token.access_token, token.scope);
+    void rememberToken(OAuthConnectionDescriptor connection, SUser user, String githubLogin, String token, String scope) {
+        oAuthTokensStorage.rememberPermanentToken(connection.getId(), user, githubLogin, token, scope);
     }
 }
