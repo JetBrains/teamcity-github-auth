@@ -27,8 +27,8 @@ public class GitHubOAuthClient {
     }
 
     @NotNull
-    public TokenResponse exchangeCodeToToken(@NotNull String code, @NotNull String clientId, @NotNull String clientSecret,
-                                             @NotNull String redirectUrl) {
+    public GitHubToken exchangeCodeToToken(@NotNull String code, @NotNull String clientId, @NotNull String clientSecret,
+                                           @NotNull String redirectUrl) {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(singletonList(MediaType.APPLICATION_JSON));
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -41,7 +41,7 @@ public class GitHubOAuthClient {
         HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(body, headers);
 
         try {
-            return restTemplate.postForObject("https://github.com/login/oauth/access_token", request, TokenResponse.class);
+            return restTemplate.postForObject("https://github.com/login/oauth/access_token", request, GitHubToken.class);
         } catch (RestClientException e) {
             throw new GitHubLoginException("Error obtaining GitHub OAuth token", e);
         }
@@ -54,11 +54,6 @@ public class GitHubOAuthClient {
         } catch (RestClientException e) {
             throw new GitHubLoginException("Error obtaining GitHub user", e);
         }
-    }
-
-    public static final class TokenResponse {
-        public String access_token;
-        public String scope;
     }
 
 }

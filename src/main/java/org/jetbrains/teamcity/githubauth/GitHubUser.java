@@ -1,6 +1,9 @@
 package org.jetbrains.teamcity.githubauth;
 
-public class GitHubUser {
+import jetbrains.buildServer.log.Loggable;
+import org.jetbrains.annotations.NotNull;
+
+public class GitHubUser implements Loggable {
     private String id;
     private String login;
     private String email;
@@ -27,5 +30,11 @@ public class GitHubUser {
 
     public void setLogin(String login) {
         this.login = login;
+    }
+
+    @NotNull
+    @Override
+    public String describe(boolean verbose) {
+        return login + "(id = " + id + ")";
     }
 }

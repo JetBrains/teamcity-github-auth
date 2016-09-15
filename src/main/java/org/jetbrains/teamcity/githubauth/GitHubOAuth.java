@@ -1,21 +1,20 @@
 package org.jetbrains.teamcity.githubauth;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.intellij.openapi.diagnostic.Logger;
 import jetbrains.buildServer.PluginTypes;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationResult;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationScheme;
 import jetbrains.buildServer.controllers.interceptors.auth.util.HttpAuthUtil;
 import jetbrains.buildServer.log.Loggers;
-import jetbrains.buildServer.serverSide.ProjectManager;
-import jetbrains.buildServer.serverSide.ServerSettings;
-import jetbrains.buildServer.serverSide.auth.LoginConfiguration;
 import jetbrains.buildServer.serverSide.auth.ServerPrincipal;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor;
-import jetbrains.buildServer.serverSide.oauth.OAuthConnectionsManager;
-import jetbrains.buildServer.serverSide.oauth.OAuthTokensStorage;
 import jetbrains.buildServer.serverSide.oauth.github.GitHubConstants;
-import jetbrains.buildServer.serverSide.oauth.github.GitHubOAuthProvider;
-import jetbrains.buildServer.users.*;
+import jetbrains.buildServer.users.DuplicateUserAccountException;
+import jetbrains.buildServer.users.PluginPropertyKey;
+import jetbrains.buildServer.users.SUser;
+import jetbrains.buildServer.users.UserSet;
 import jetbrains.buildServer.util.StringUtil;
 import jetbrains.buildServer.web.util.WebUtil;
 import org.jetbrains.annotations.NotNull;
@@ -25,45 +24,31 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.io.IOException;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.Map;
 
 import static java.util.Collections.emptySet;
+import static java.util.Collections.singletonMap;
 
 public class GitHubOAuth implements HttpAuthenticationScheme {
-    private static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
-    private static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
+    static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
+    static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
     private static final String STATE_SESSION_ATTR_NAME = "teamcity.gitHubAuth.state";
 
     @NotNull
     private final GitHubOAuthClient gitHubOAuthClient;
     @NotNull
-    private final UserModel myUserModel;
+    private final TeamCityCoreFacade teamCityCore;
     @NotNull
-    private final LoginConfiguration loginConfiguration;
-    @NotNull
-    private final ServerSettings myServerSettings;
-    @NotNull
-    private final OAuthConnectionsManager oAuthConnectionsManager;
-    @NotNull
-    private final OAuthTokensStorage oAuthTokensStorage;
-    @NotNull
-    private final ProjectManager projectManager;
-
+    private volatile Logger logger = Logger.getInstance(Loggers.AUTH_CATEGORY + ".gitHubOAuth");
+    
     public GitHubOAuth(@NotNull GitHubOAuthClient gitHubOAuthClient,
-                       @NotNull UserModel myUserModel,
-                       @NotNull LoginConfiguration loginConfiguration,
-                       @NotNull ServerSettings myServerSettings,
-                       @NotNull OAuthConnectionsManager oAuthConnectionsManager,
-                       @NotNull OAuthTokensStorage oAuthTokensStorage,
-                       @NotNull ProjectManager projectManager) {
+                       @NotNull TeamCityCoreFacade teamCityCore) {
         this.gitHubOAuthClient = gitHubOAuthClient;
-        this.myUserModel = myUserModel;
-        this.loginConfiguration = loginConfiguration;
-        this.myServerSettings = myServerSettings;
-        this.oAuthConnectionsManager = oAuthConnectionsManager;
-        this.oAuthTokensStorage = oAuthTokensStorage;
-        this.projectManager = projectManager;
-        loginConfiguration.registerAuthModuleType(this);
+        this.teamCityCore = teamCityCore;
+        teamCityCore.registerAuthModule(this);
     }
 
     @NotNull
@@ -72,7 +57,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         HttpSession session = request.getSession();
         String state = StringUtil.generateUniqueHash();
         session.setAttribute(STATE_SESSION_ATTR_NAME, state);
-        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, myServerSettings.getRootUrl(), state);
+        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, teamCityCore.getRootUrl(), state);
     }
 
     @NotNull
@@ -81,36 +66,55 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         String code = request.getParameter("code");
         String state = request.getParameter("state");
 
-        if (Strings.isNullOrEmpty(code))
-            return HttpAuthenticationResult.notApplicable();
-
-        if (state == null || !state.equals(request.getSession().getAttribute(STATE_SESSION_ATTR_NAME))) {
-            Loggers.SERVER.warn("Attempt to login using GitHub with invalid state parameter. Request: " + WebUtil.getRequestDump(request));
-            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: state parameter is invalid", emptySet());
-        }
+        HttpAuthenticationResult result = validateRequest(request, response, code, state);
+        if (result != null) return result;
 
         OAuthConnectionDescriptor connection = getSuitableConnection();
-        GitHubOAuthClient.TokenResponse token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
+        GitHubToken token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
                 connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
-                myServerSettings.getRootUrl());
-        GitHubUser gitHubUser = gitHubOAuthClient.getUser(token.access_token);
+                teamCityCore.getRootUrl());
+        logger.debug("GitHub token received: " + token.describe(false));
 
-        UserSet<SUser> users = myUserModel.findUsersByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId(), true);
+        GitHubUser gitHubUser = gitHubOAuthClient.getUser(token.access_token);
+        logger.debug("GitHub user obtained: " + gitHubUser.describe(false));
+
+        UserSet<SUser> users = teamCityCore.findUserByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId());
         Iterator<SUser> iterator = users.getUsers().iterator();
         if (iterator.hasNext()) {
             final SUser found = iterator.next();
-            oAuthTokensStorage.rememberPermanentToken(connection.getId(), found, gitHubUser.getLogin(), token.access_token, token.scope);
+            teamCityCore.rememberToken(connection, found, gitHubUser.getLogin(), token);
+            logger.debug("Corresponding TeamCity user found for the GitHub user '" + gitHubUser.describe(false) + "': " + found.describe(true));
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, found.getUsername()), true);
         }
 
         try {
-            SUser created = myUserModel.createUserAccount(null, gitHubUser.getLogin());
-            created.setUserProperty(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId());
-            return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, created.getUsername()), true);
+            SUser created = teamCityCore.createUser(gitHubUser.getLogin(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
+            logger.debug("New TeamCity user created for the GitHub user '" + gitHubUser.describe(false) + "': " + created.describe(true));
+            teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token);
+            return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, gitHubUser.getLogin()), true);
         } catch (DuplicateUserAccountException e) {
-            Loggers.SERVER.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
+            logger.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
             return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
         }
+    }
+
+    @Nullable
+    private HttpAuthenticationResult validateRequest(HttpServletRequest request, HttpServletResponse response, String code, String state) throws IOException {
+        if (Strings.isNullOrEmpty(code)) {
+            logger.debug("No 'code' parameter found in the request, skip GitHub authentication");
+            return HttpAuthenticationResult.notApplicable();
+        }
+
+        if (state == null) {
+            logger.warn("Attempt to login using GitHub with empty 'state' parameter. Request: " + WebUtil.getRequestDump(request));
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: 'state' parameter is empty", emptySet());
+        }
+
+        if (!state.equals(request.getSession().getAttribute(STATE_SESSION_ATTR_NAME))) {
+            logger.warn("Attempt to login using GitHub with invalid 'state' parameter: " + state + ". Request: " + WebUtil.getRequestDump(request));
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: 'state' parameter is invalid", emptySet());
+        }
+        return null;
     }
 
     @NotNull
@@ -165,8 +169,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
 
     @Nullable
     public OAuthConnectionDescriptor tryFindSuitableConnection() {
-        List<OAuthConnectionDescriptor> foundConnections = oAuthConnectionsManager.getAvailableConnectionsOfType(projectManager.getRootProject(), GitHubOAuthProvider.TYPE);
-        return foundConnections.isEmpty() ? null : foundConnections.get(0);
+        return teamCityCore.getRootProjectGitHubConnection();
     }
 
     @NotNull
@@ -182,6 +185,11 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     public boolean isAuthModuleConfigured() {
-        return loginConfiguration.getConfiguredAuthModules(GitHubOAuth.class).size() == 1;
+        return teamCityCore.isAuthModuleConfigured(GitHubOAuth.class);
+    }
+
+    @VisibleForTesting
+    void setLogger(Logger logger) {
+        this.logger = logger;
     }
 }
