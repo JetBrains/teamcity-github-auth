@@ -33,6 +33,8 @@ import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonMap;
 
 public class GitHubOAuth implements HttpAuthenticationScheme {
+    static final String PLUGIN_PATH_PREFIX = "/gitHubAuth";
+
     static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
     static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
     private static final String STATE_SESSION_ATTR_NAME = "teamcity.gitHubAuth.state";
@@ -57,18 +59,17 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         HttpSession session = request.getSession();
         String state = StringUtil.generateUniqueHash();
         session.setAttribute(STATE_SESSION_ATTR_NAME, state);
-        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE, teamCityCore.getRootUrl(), state);
+        return gitHubOAuthClient.getUserRedirect(connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM), DEFAULT_SCOPE,
+                teamCityCore.getRootUrl() + GitHubOAuthTokenController.PATH, state);
     }
 
     @NotNull
     @Override
     public HttpAuthenticationResult processAuthenticationRequest(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Map<String, String> properties) throws IOException {
-        String code = request.getParameter("code");
-        String state = request.getParameter("state");
-
-        HttpAuthenticationResult result = validateRequest(request, response, code, state);
+        HttpAuthenticationResult result = validateRequest(request, response);
         if (result != null) return result;
 
+        String code = request.getParameter("code");
         OAuthConnectionDescriptor connection = getSuitableConnection();
         GitHubToken token = gitHubOAuthClient.exchangeCodeToToken(code, connection.getParameters().get(GitHubConstants.CLIENT_ID_PARAM),
                 connection.getParameters().get(GitHubConstants.CLIENT_SECRET_PARAM),
@@ -99,12 +100,18 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     @Nullable
-    private HttpAuthenticationResult validateRequest(HttpServletRequest request, HttpServletResponse response, String code, String state) throws IOException {
-        if (Strings.isNullOrEmpty(code)) {
-            logger.debug("No 'code' parameter found in the request, skip GitHub authentication");
+    private HttpAuthenticationResult validateRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (!request.getRequestURI().endsWith(GitHubOAuthTokenController.PATH)) {
+            logger.debug("Skip GitHub authentication: path doesn't match " + request.getPathInfo());
             return HttpAuthenticationResult.notApplicable();
         }
 
+        if (Strings.isNullOrEmpty(request.getParameter("code"))) {
+            logger.debug("No 'code' parameter found in the request, skip GitHub authentication");
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: 'code' parameter is empty", emptySet());
+        }
+
+        String state = request.getParameter("state");
         if (state == null) {
             logger.warn("Attempt to login using GitHub with empty 'state' parameter. Request: " + WebUtil.getRequestDump(request));
             return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error: 'state' parameter is empty", emptySet());

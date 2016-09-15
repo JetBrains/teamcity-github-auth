@@ -1,6 +1,5 @@
 package org.jetbrains.teamcity.githubauth;
 
-import jetbrains.buildServer.controllers.AuthorizationInterceptor;
 import jetbrains.buildServer.controllers.BaseController;
 import jetbrains.buildServer.web.openapi.WebControllerManager;
 import org.jetbrains.annotations.NotNull;
@@ -12,23 +11,16 @@ import javax.servlet.http.HttpServletResponse;
 
 import static org.jetbrains.teamcity.githubauth.GitHubOAuth.PLUGIN_PATH_PREFIX;
 
-public class GitHubOAuthLoginController extends BaseController {
-    public static final String PATH = PLUGIN_PATH_PREFIX + "/login.html";
+public class GitHubOAuthTokenController extends BaseController {
+    public static final String PATH = PLUGIN_PATH_PREFIX + "/token.html";
 
-    @NotNull
-    private final GitHubOAuth gitHubOAuth;
-
-    public GitHubOAuthLoginController(@NotNull WebControllerManager webControllerManager,
-                                      @NotNull AuthorizationInterceptor authInterceptor,
-                                      @NotNull GitHubOAuth gitHubOAuth) {
-        this.gitHubOAuth = gitHubOAuth;
+    public GitHubOAuthTokenController(@NotNull WebControllerManager webControllerManager) {
         webControllerManager.registerController(PATH, this);
-        authInterceptor.addPathNotRequiringAuth(PATH);
     }
 
     @Nullable
     @Override
     protected ModelAndView doHandle(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response) throws Exception {
-        return redirectTo(gitHubOAuth.getUserRedirect(request), response);
+        return redirectTo("/overview.html", response);
     }
 }

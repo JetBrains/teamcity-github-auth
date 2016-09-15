@@ -25,10 +25,13 @@ import org.springframework.web.client.RestTemplate;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static java.util.Collections.*;
+import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.BDDAssertions.then;
 import static org.jetbrains.teamcity.githubauth.GitHubOAuth.DEFAULT_SCOPE;
 import static org.jetbrains.teamcity.githubauth.GitHubOAuth.GITHUB_USER_ID_PROPERTY_KEY;
@@ -108,6 +111,16 @@ public class GitHubOAuthTest {
     }
 
     @Test
+    public void should_not_accept__foreign_requests() throws IOException {
+        emulateFirstOAuthStep();
+
+        newRequest();
+        request.setRequestURI("/foreignPath.html");
+        HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
+
+        then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.NOT_APPLICABLE);
+    }
+    @Test
     public void successful_login__new_user_created() throws Exception {
         emulateFirstOAuthStep();
 
@@ -135,17 +148,22 @@ public class GitHubOAuthTest {
 
     private void emulateFirstOAuthStep() {
         String redirect = gitHubOAuth.getUserRedirect(request);
-        String state = verifyRedirectUrlAndFetchStateParam(redirect);
+        Map<String, String> params = verifyRedirectUrlAndFetchQueryParams(redirect);
 
         newRequest();
         request.addParameter("code", OAUTH_CODE);
-        request.addParameter("state", state);
+        request.addParameter("state", params.get("state"));
+        request.setRequestURI(params.get("redirect_uri"));
     }
 
     @NotNull
-    private String verifyRedirectUrlAndFetchStateParam(String redirect) {
-        then(redirect).isNotNull().contains("client_id=" + CLIENT_ID).contains("redirect_uri=" + TC_URL).contains("state=");
-        return redirect.substring(redirect.indexOf("state=") + 6);
+    private Map<String, String> verifyRedirectUrlAndFetchQueryParams(String redirect) {
+        then(redirect).isNotNull();
+        String queryString = redirect.substring(redirect.indexOf("?") + 1);
+        Map<String, String> parsedQueryString = Stream.of(queryString.split("&")).collect(toMap(param -> param.substring(0, param.indexOf("=")),
+                param -> param.substring(param.indexOf("=") + 1)));
+        then(parsedQueryString).containsEntry("client_id", CLIENT_ID).containsEntry("redirect_uri", TC_URL + GitHubOAuthTokenController.PATH).containsKey("state");
+        return parsedQueryString;
     }
 
     private static final String TOKEN_JSON = "{\"access_token\":\"" + OAUTH_TOKEN + "\", \"scope\":\"" + DEFAULT_SCOPE + "\", \"token_type\":\"bearer\"}";
