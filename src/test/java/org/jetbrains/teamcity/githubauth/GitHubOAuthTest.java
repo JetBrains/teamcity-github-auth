@@ -256,7 +256,7 @@ public class GitHubOAuthTest {
         HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
-        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("Unexpected GitHub login error (see teamcity-auth.log for the details).");
+        then(HttpAuthUtil.getUnauthenticatedReason(request)).isEqualTo("GitHub login error: The client_id and/or client_secret passed are incorrect.");
     }
 
     private String emulateFirstOAuthStep() {

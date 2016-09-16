@@ -78,8 +78,14 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         logger.debug("GitHub token response: " + token.describe(false));
 
         if (token.error != null) {
-            logger.warn("GitHub login error while obtaining token: " + token.describe(false));
-            return HttpAuthUtil.sendUnauthorized(request, response, "Unexpected GitHub login error (see teamcity-auth.log for the details).", emptySet());
+            if ("incorrect_client_credentials".equals(token.error)) {
+                logger.warn("GitHub login error: invalid Client ID or Client Secret parameters. " +
+                        "Ensure that GitHub Connection parameters correspond to the GitHub application. Details: " + token.describe(false));
+            } else {
+                logger.warn("GitHub login error: " + token.describe(false));
+            }
+            return HttpAuthUtil.sendUnauthorized(request, response, "GitHub login error" +
+                    (token.error_description != null ? ": " + token.error_description : " (see teamcity-auth.log for details)"), emptySet());
         }
 
         GitHubUser gitHubUser = gitHubOAuthClient.getUser(token.access_token);
