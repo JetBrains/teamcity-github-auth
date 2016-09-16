@@ -3,6 +3,7 @@ package org.jetbrains.teamcity.githubauth;
 import jetbrains.buildServer.controllers.interceptors.auth.HttpAuthenticationScheme;
 import jetbrains.buildServer.serverSide.ProjectManager;
 import jetbrains.buildServer.serverSide.ServerSettings;
+import jetbrains.buildServer.serverSide.TeamCityProperties;
 import jetbrains.buildServer.serverSide.auth.LoginConfiguration;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionDescriptor;
 import jetbrains.buildServer.serverSide.oauth.OAuthConnectionsManager;
@@ -12,6 +13,7 @@ import jetbrains.buildServer.users.PropertyKey;
 import jetbrains.buildServer.users.SUser;
 import jetbrains.buildServer.users.UserModel;
 import jetbrains.buildServer.users.UserSet;
+import jetbrains.buildServer.users.impl.UserEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,6 +54,9 @@ public class TeamCityCoreFacade {
     SUser createUser(String username, @Nullable String email, Map<PropertyKey, String> properties) {
         SUser created = myUserModel.createUserAccount(null, username);
         properties.forEach(created::setUserProperty);
+        if (email != null && TeamCityProperties.getBooleanOrTrue("teamcity.gitHubAuth.setEmailIsVerified")) {
+            ((UserEx) created).setEmailIsVerified(email); //looks like GitHub responds with verified emails only.
+        }
         return created;
     }
 
