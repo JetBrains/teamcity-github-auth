@@ -49,7 +49,7 @@ public class TeamCityCoreFacade {
         return myUserModel.findUsersByPropertyValue(propertyKey, propertyValue, true);
     }
 
-    SUser createUser(String username, Map<PropertyKey, String> properties) {
+    SUser createUser(String username, @Nullable String email, Map<PropertyKey, String> properties) {
         SUser created = myUserModel.createUserAccount(null, username);
         properties.forEach(created::setUserProperty);
         return created;

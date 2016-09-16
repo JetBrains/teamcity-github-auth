@@ -94,7 +94,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
         }
 
         try {
-            SUser created = teamCityCore.createUser(gitHubUser.getLogin(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
+            SUser created = teamCityCore.createUser(gitHubUser.getLogin(), gitHubUser.getEmail(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
             logger.debug("New TeamCity user created for the GitHub user '" + gitHubUser.describe(false) + "': " + created.describe(true));
             teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token.access_token, token.scope);
             return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, gitHubUser.getLogin()), true);
@@ -211,7 +211,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     @VisibleForTesting
-    void setLogger(Logger logger) {
+    void setLogger(@NotNull Logger logger) {
         this.logger = logger;
     }
 }
