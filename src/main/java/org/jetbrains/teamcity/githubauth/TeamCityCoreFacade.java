@@ -51,10 +51,10 @@ public class TeamCityCoreFacade {
         return myUserModel.findUsersByPropertyValue(propertyKey, propertyValue, true);
     }
 
-    SUser createUser(String username, @Nullable String email, Map<PropertyKey, String> properties) {
+    SUser createUser(String username, @Nullable String email, @Nullable String name, Map<PropertyKey, String> properties) {
         SUser created = myUserModel.createUserAccount(null, username);
         properties.forEach(created::setUserProperty);
-        created.updateUserAccount(username, null, email);
+        created.updateUserAccount(username, name, email);
         if (email != null && TeamCityProperties.getBooleanOrTrue("teamcity.gitHubAuth.setEmailIsVerified")) {
             ((UserEx) created).setEmailIsVerified(email); //looks like GitHub responds with verified emails only.
         }

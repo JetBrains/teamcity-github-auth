@@ -146,10 +146,10 @@ public class GitHubOAuthTest {
     @Test
     public void successful_login__new_user_created() throws Exception {
         String code = emulateFirstOAuthStep();
-        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "octocat@github.com"));
+        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "monalisa octocat", "octocat@github.com"));
 
         when(teamCityCoreMock.findUserByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, "1")).thenReturn(UserSet.EMPTY);
-        when(teamCityCoreMock.createUser("octocat", "octocat@github.com", singletonMap(GITHUB_USER_ID_PROPERTY_KEY, "1"))).thenReturn(tcUser);
+        when(teamCityCoreMock.createUser("octocat", "octocat@github.com", "monalisa octocat", singletonMap(GITHUB_USER_ID_PROPERTY_KEY, "1"))).thenReturn(tcUser);
         HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.AUTHENTICATED);
@@ -160,10 +160,10 @@ public class GitHubOAuthTest {
     @Test
     public void successful_login__new_user_created_with_empty_email() throws Exception {
         String code = emulateFirstOAuthStep();
-        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", null));
+        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "monalisa octocat", null));
 
         when(teamCityCoreMock.findUserByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, "1")).thenReturn(UserSet.EMPTY);
-        when(teamCityCoreMock.createUser("octocat", null, singletonMap(GITHUB_USER_ID_PROPERTY_KEY, "1"))).thenReturn(tcUser);
+        when(teamCityCoreMock.createUser("octocat", null, "monalisa octocat", singletonMap(GITHUB_USER_ID_PROPERTY_KEY, "1"))).thenReturn(tcUser);
         HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.AUTHENTICATED);
@@ -172,7 +172,7 @@ public class GitHubOAuthTest {
     @Test
     public void successful_login__user_exists() throws Exception {
         String code = emulateFirstOAuthStep();
-        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "octocat@github.com"));
+        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "monalisa octocat", "octocat@github.com"));
 
         when(teamCityCoreMock.findUserByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, "1")).thenReturn(() -> singleton(tcUser));
         when(tcUser.getUsername()).thenReturn("octocat");
@@ -181,16 +181,16 @@ public class GitHubOAuthTest {
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.AUTHENTICATED);
         then(result.getPrincipal().getName()).isEqualTo("octocat");
         verify(teamCityCoreMock).rememberToken(rootProjectConnection, tcUser, "octocat", "token1", DEFAULT_SCOPE);
-        verify(teamCityCoreMock, never()).createUser(anyString(), anyString(), anyMap());
+        verify(teamCityCoreMock, never()).createUser(anyString(), anyString(), anyString(), anyMap());
     }
 
     @Test
     public void failed_login__username_exists_and_correspond_to_different_user() throws Exception {
         String code = emulateFirstOAuthStep();
-        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "octocat@github.com"));
+        setupGitHubApiAnswers(code, "token1", DEFAULT_SCOPE, createUserJson("1", "octocat", "monalisa octocat", "octocat@github.com"));
 
         when(teamCityCoreMock.findUserByPropertyValue(GITHUB_USER_ID_PROPERTY_KEY, "1")).thenReturn(UserSet.EMPTY);
-        when(teamCityCoreMock.createUser(eq("octocat"), anyString(), anyMap())).thenThrow(new DuplicateUserAccountException("octocat"));
+        when(teamCityCoreMock.createUser(eq("octocat"), anyString(), anyString(), anyMap())).thenThrow(new DuplicateUserAccountException("octocat"));
         HttpAuthenticationResult result = gitHubOAuth.processAuthenticationRequest(request, response, emptyMap());
 
         then(result.getType()).isEqualTo(HttpAuthenticationResult.Type.UNAUTHENTICATED);
@@ -294,7 +294,7 @@ public class GitHubOAuthTest {
                 "}";
     }
 
-    private String createUserJson(String id, String login, String email) {
+    private String createUserJson(String id, String login, String name, String email) {
         return
                 "{\n" +
                         "  \"login\": \"" + login + "\",\n" +
@@ -314,7 +314,7 @@ public class GitHubOAuthTest {
                         "  \"received_events_url\": \"https://api.github.com/users/octocat/received_events\",\n" +
                         "  \"type\": \"User\",\n" +
                         "  \"site_admin\": false,\n" +
-                        "  \"name\": \"monalisa octocat\",\n" +
+                        "  \"name\": \"" + name + "\",\n" +
                         "  \"company\": \"GitHub\",\n" +
                         "  \"blog\": \"https://github.com/blog\",\n" +
                         "  \"location\": \"San Francisco\",\n" +

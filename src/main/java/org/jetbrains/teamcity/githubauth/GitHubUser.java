@@ -7,6 +7,7 @@ public class GitHubUser implements Loggable {
     private String id;
     private String login;
     private String email;
+    private String name;
 
     public String getEmail() {
         return email;
@@ -30,6 +31,14 @@ public class GitHubUser implements Loggable {
 
     public void setLogin(String login) {
         this.login = login;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     @NotNull
