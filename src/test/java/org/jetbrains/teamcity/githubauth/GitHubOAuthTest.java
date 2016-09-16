@@ -37,8 +37,7 @@ import java.util.stream.Stream;
 import static java.util.Collections.*;
 import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.BDDAssertions.then;
-import static org.jetbrains.teamcity.githubauth.GitHubOAuth.DEFAULT_SCOPE;
-import static org.jetbrains.teamcity.githubauth.GitHubOAuth.GITHUB_USER_ID_PROPERTY_KEY;
+import static org.jetbrains.teamcity.githubauth.GitHubOAuth.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.eq;
 import static org.springframework.http.HttpMethod.GET;
@@ -122,7 +121,7 @@ public class GitHubOAuthTest {
         expectedTokenBody.put("client_id", singletonList(clientId));
         expectedTokenBody.put("client_secret", singletonList(clientSecret));
         expectedTokenBody.put("code", singletonList(code));
-        expectedTokenBody.put("redirect_uri", singletonList(TC_URL + GitHubOAuthTokenController.PATH));
+        expectedTokenBody.put("redirect_uri", singletonList(TC_URL + TOKEN_REDIRECT_URL));
         return expectedTokenBody;
     }
 
@@ -278,7 +277,7 @@ public class GitHubOAuthTest {
         String queryString = redirect.substring(redirect.indexOf("?") + 1);
         Map<String, String> parsedQueryString = Stream.of(queryString.split("&")).collect(toMap(param -> param.substring(0, param.indexOf("=")),
                 param -> param.substring(param.indexOf("=") + 1)));
-        then(parsedQueryString).containsEntry("client_id", CLIENT_ID).containsEntry("redirect_uri", TC_URL + GitHubOAuthTokenController.PATH).containsKey("state");
+        then(parsedQueryString).containsEntry("client_id", CLIENT_ID).containsEntry("redirect_uri", TC_URL + TOKEN_REDIRECT_URL).containsKey("state");
         return parsedQueryString;
     }
 

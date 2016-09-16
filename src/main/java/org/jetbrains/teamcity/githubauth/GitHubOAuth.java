@@ -38,6 +38,7 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     static final PluginPropertyKey GITHUB_USER_ID_PROPERTY_KEY = new PluginPropertyKey(PluginTypes.AUTH_PLUGIN_TYPE, "github-oauth", "userId");
     static final String DEFAULT_SCOPE = "user,public_repo,repo,repo:status,write:repo_hook";
     private static final String STATE_SESSION_ATTR_NAME = "teamcity.gitHubAuth.state";
+    static final String TOKEN_REDIRECT_URL = "/oauth/github/accessToken.html";
 
     @NotNull
     private final GitHubOAuthClient gitHubOAuthClient;
@@ -90,14 +91,14 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
             final SUser found = iterator.next();
             teamCityCore.rememberToken(connection, found, gitHubUser.getLogin(), token.access_token, token.scope);
             logger.debug("Corresponding TeamCity user found for the GitHub user '" + gitHubUser.describe(false) + "': " + found.describe(true));
-            return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, found.getUsername()), true);
+            return authenticated(new ServerPrincipal(null, found.getUsername()));
         }
 
         try {
             SUser created = teamCityCore.createUser(gitHubUser.getLogin(), gitHubUser.getEmail(), gitHubUser.getName(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
             logger.debug("New TeamCity user created for the GitHub user '" + gitHubUser.describe(false) + "': " + created.describe(true));
             teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token.access_token, token.scope);
-            return HttpAuthenticationResult.authenticated(new ServerPrincipal(null, gitHubUser.getLogin()), true);
+            return authenticated(new ServerPrincipal(null, gitHubUser.getLogin()));
         } catch (DuplicateUserAccountException e) {
             logger.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
             return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
@@ -105,13 +106,18 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     @NotNull
+    private HttpAuthenticationResult authenticated(ServerPrincipal principal) {
+        return HttpAuthenticationResult.authenticated(principal, true).withRedirect("/overview.html");
+    }
+
+    @NotNull
     private String buildRedirectUrl() {
-        return teamCityCore.getRootUrl() + GitHubOAuthTokenController.PATH;
+        return teamCityCore.getRootUrl() + TOKEN_REDIRECT_URL;
     }
 
     @Nullable
     private HttpAuthenticationResult validateRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (!request.getRequestURI().endsWith(GitHubOAuthTokenController.PATH)) {
+        if (!request.getRequestURI().endsWith("/oauth/github/accessToken.html")) {
             logger.debug("Skip GitHub authentication: path doesn't match " + request.getPathInfo());
             return HttpAuthenticationResult.notApplicable();
         }
