@@ -97,14 +97,14 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
             final SUser found = iterator.next();
             teamCityCore.rememberToken(connection, found, gitHubUser.getLogin(), token.access_token, token.scope);
             logger.debug("Corresponding TeamCity user found for the GitHub user '" + gitHubUser.describe(false) + "': " + found.describe(true));
-            return authenticated(new ServerPrincipal(null, found.getUsername()));
+            return authenticated(request, new ServerPrincipal(null, found.getUsername()));
         }
 
         try {
             SUser created = teamCityCore.createUser(gitHubUser.getLogin(), gitHubUser.getEmail(), gitHubUser.getName(), singletonMap(GITHUB_USER_ID_PROPERTY_KEY, gitHubUser.getId()));
             logger.debug("New TeamCity user created for the GitHub user '" + gitHubUser.describe(false) + "': " + created.describe(true));
             teamCityCore.rememberToken(connection, created, gitHubUser.getLogin(), token.access_token, token.scope);
-            return authenticated(new ServerPrincipal(null, gitHubUser.getLogin()));
+            return authenticated(request, new ServerPrincipal(null, gitHubUser.getLogin()));
         } catch (DuplicateUserAccountException e) {
             logger.warn("GitHub login error: user with username '" + gitHubUser.getLogin() + "' already exist.");
             return HttpAuthUtil.sendUnauthorized(request, response, "User with username '" + gitHubUser.getLogin() + "' already exist", emptySet());
@@ -112,8 +112,8 @@ public class GitHubOAuth implements HttpAuthenticationScheme {
     }
 
     @NotNull
-    private HttpAuthenticationResult authenticated(ServerPrincipal principal) {
-        return HttpAuthenticationResult.authenticated(principal, true).withRedirect("/overview.html");
+    private HttpAuthenticationResult authenticated(HttpServletRequest request, ServerPrincipal principal) {
+        return HttpAuthenticationResult.authenticated(principal, true).withRedirect(request.getContextPath() + "/overview.html");
     }
 
     @NotNull
