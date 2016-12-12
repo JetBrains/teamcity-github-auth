@@ -50,7 +50,7 @@ teamcity {
             version = project.version
             vendorName = 'JetBrains, s.r.o.'
             vendorUrl = 'http://www.jetbrains.com/'
-            description = 'Allows to authenticate using GitHub OAuth'
+            description = 'Allows authenticating using GitHub OAuth'
             useSeparateClassloader = true
         }
 
