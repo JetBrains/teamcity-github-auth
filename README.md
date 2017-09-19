@@ -1,3 +1,4 @@
+[![official JetBrains project](http://jb.gg/badges/official-plastic.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) 
 # teamcity-github-auth
 
 Allows users to authenticate in TeamCity using the GitHub.com account.
