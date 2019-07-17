@@ -49,7 +49,7 @@ teamcity {
             displayName = 'TeamCity GitHub Auth'
             version = project.version
             vendorName = 'JetBrains, s.r.o.'
-            vendorUrl = 'http://www.jetbrains.com/'
+            vendorUrl = 'https://www.jetbrains.com/'
             description = 'Allows authenticating using GitHub OAuth'
             useSeparateClassloader = true
         }
