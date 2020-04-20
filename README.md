@@ -2,7 +2,7 @@
 # teamcity-github-auth
 
 Allows users to authenticate in TeamCity using the GitHub.com account.
-The plugin is compatible with TeamCity 10.
+The plugin is compatible with TeamCity 11.
 
 How to use:
 * Donwload latest plugin build [here](https://teamcity.jetbrains.com/viewType.html?buildTypeId=TeamCityPluginsByJetBrains_Build_2&guest=1)
