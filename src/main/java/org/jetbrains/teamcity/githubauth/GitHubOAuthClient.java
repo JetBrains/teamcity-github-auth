@@ -3,6 +3,7 @@ package org.jetbrains.teamcity.githubauth;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -49,8 +50,14 @@ public class GitHubOAuthClient {
 
     @NotNull
     public GitHubUser getUser(@NotNull String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(singletonList(MediaType.APPLICATION_JSON));
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.set("Authorization", "token " + token);
+        HttpEntity<String> request = new HttpEntity<>(headers);
+
         try {
-            return restTemplate.getForObject("https://api.github.com/user?access_token=" + token, GitHubUser.class);
+            return restTemplate.exchange("https://api.github.com/user", HttpMethod.GET, request, GitHubUser.class).getBody();
         } catch (RestClientException e) {
             throw new GitHubLoginException("Error obtaining GitHub user", e);
         }

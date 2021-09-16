@@ -101,7 +101,7 @@ public class GitHubOAuthTest {
                 .andExpect(content().formData(expectedTokenBody))
                 .andRespond(withSuccess(createTokenJson(token, tokenScope), APPLICATION_JSON));
 
-        server.expect(requestTo("https://api.github.com/user?access_token=" + token)).andExpect(method(GET))
+        server.expect(requestTo("https://api.github.com/user")).andExpect(method(GET))
                 .andRespond(withSuccess(userJson, APPLICATION_JSON));
     }
 
