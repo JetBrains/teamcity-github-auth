@@ -1,6 +1,8 @@
 [![obsolete JetBrains project](https://jb.gg/badges/obsolete-plastic.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) 
 # teamcity-github-auth
 
+Deprecation note: recent versions of TeamCity have GitHub authentication out of the box and this plugin is not needed there.
+
 Allows users to authenticate in TeamCity using the GitHub.com account.
 The plugin is compatible with TeamCity 10.
 
